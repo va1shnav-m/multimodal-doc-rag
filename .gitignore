@@ -1,0 +1,44 @@
+# Virtual Environments
+.venv/
+*/.venv/
+venv/
+ENV/
+env/
+
+# Python Cache & Bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Vector DB & Storage
+storage/
+*/storage/
+*.db
+*.pkl
+*.sqlite3
+
+# Runtime Cache & Temp Dumps
+image_analysis_cache.json
+*/image_analysis_cache.json
+temp_assets/
+temp_chunks/
+temp/
+*/temp_assets/
+*/temp_chunks/
+*/temp/
+logs/
+*/logs/
+ppstructure_test_output/
+*/ppstructure_test_output/
+
+# Output Artifacts
+output/
+*/output/
+*.log
+
+# Loose scratch dumps
+structure.txt
+*/structure.txt
