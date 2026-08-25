@@ -4,8 +4,6 @@ import time
 import json
 from collections import Counter
 from llama_index.core.node_parser import get_leaf_nodes
-# from ingestion.parser import parse_pdf
-from integration.document_parser import parse_document
 from ingestion.metadata_pipeline import MetadataPipeline
 from ingestion.chunker import create_chunks
 from ingestion.entities import extract_entities
@@ -44,26 +42,10 @@ class IngestionPipeline:
         self,
         uploaded_file
     ):
-        fname = getattr(uploaded_file, "name", str(uploaded_file))
-        logger.info(
-            f"Processing {fname}"
+        raise NotImplementedError(
+            "PDF conversion should be performed via PDFtoMarkdown_V3 / 'main.py convert' "
+            "before ingesting the resulting markdown into the RAG vector store."
         )
-
-        start = time.perf_counter()
-
-        parsed = parse_document(
-            uploaded_file
-        )
-
-        pdf_time = time.perf_counter() - start
-
-        record_metric("PDF Parsing", round(pdf_time, 3))
-        document = self.metadata_pipeline.build_document(
-            parsed,
-            filename=fname
-        )
-
-        return document
 
     def ingest_markdown_file(
         self,

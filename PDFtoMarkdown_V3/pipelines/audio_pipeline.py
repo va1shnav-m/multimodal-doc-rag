@@ -5,7 +5,6 @@ from typing import Dict, Any, Optional
 from modules.audio_transcriber import transcribe_audio
 from modules.ui import ConsoleUI
 
-
 def format_audio_markdown(result: Dict[str, Any]) -> str:
     """Format structured transcription dictionary into clean Markdown."""
     lines = []

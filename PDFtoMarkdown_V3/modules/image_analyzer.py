@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import re
 import tempfile
 import time
 
@@ -22,7 +23,7 @@ except Exception:
 
 CACHE_FILE = Path("image_analysis_cache.json")
 
-MAX_IMAGE_SIZE = 512
+MAX_IMAGE_SIZE = 1024
 
 PHASH_THRESHOLD = 4
 
@@ -35,8 +36,11 @@ MODEL = "qwen3-vl:2b-instruct"
 
 def load_cache():
     if CACHE_FILE.exists():
-        with open(CACHE_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            with open(CACHE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
     return {}
 
 
@@ -77,21 +81,34 @@ def resize_image(image_path):
 
 
 # ------------------------------------
-# PaddleOCR Extraction
+# OCR Text Extraction
 # ------------------------------------
 
 
 def extract_raw_ocr(image_path):
-    """Extract raw text tokens using PaddleOCR / RapidOCR engine."""
+    """Extract raw text tokens using RapidOCR engine."""
     if _ocr_engine is None:
         return []
     try:
         results, _ = _ocr_engine(str(image_path))
         if not results:
             return []
-        return [r[1].strip() for r in results if len(r) > 1 and r[1].strip()]
+        tokens = [r[1].strip() for r in results if len(r) > 1 and r[1].strip()]
+        return tokens
     except Exception:
         return []
+
+
+def format_ocr_fallback(tokens):
+    """Format raw OCR tokens into structured clean lines."""
+    if not tokens:
+        return ""
+    lines = []
+    for tok in tokens:
+        cleaned = tok.strip()
+        if cleaned:
+            lines.append(f"- {cleaned}")
+    return "\n".join(lines)
 
 
 # ------------------------------------
@@ -107,7 +124,11 @@ CONVERSATIONAL_PREFIXES = (
 
 
 def _filter_conversational_lines(text: str) -> str:
-    """Strip conversational thoughts and monologue artifacts."""
+    """Strip conversational thoughts, backticks, and monologue artifacts."""
+    # Strip triple backtick fences
+    text = re.sub(r"```[a-zA-Z]*\n?", "", text)
+    text = text.replace("```", "")
+
     cleaned = []
     seen = set()
     for line in text.splitlines():
@@ -123,52 +144,44 @@ def _filter_conversational_lines(text: str) -> str:
     return "\n".join(cleaned).strip()
 
 
-def parse_analysis_response(response_text):
+def _is_text_extract_header(line: str) -> bool:
+    """Check if line matches any text extract heading pattern."""
+    clean = re.sub(r"[*#_`:]", "", line).strip().lower()
+    return clean in {
+        "text extract", "extracted text", "text", "labels",
+        "raw text", "detected text", "entities"
+    }
+
+
+def _is_description_header(line: str) -> bool:
+    """Check if line matches any description heading pattern."""
+    clean = re.sub(r"[*#_`:]", "", line).strip().lower()
+    return clean in {
+        "description", "summary", "overview", "explanation", "details"
+    }
+
+
+def parse_analysis_response(response_text, raw_tokens=None):
     """
-    Parse the VLM response into category, text extract,
-    and description.
+    Parse the VLM response into text extract and description.
+    Falls back to structured raw OCR tokens if VLM output lacks text extract.
     """
     text = response_text.strip()
-    category = "general"
-    text_extract = ""
-    description = ""
-
     lines = text.splitlines()
-
-    for line in lines:
-        stripped = line.strip().lower()
-        if stripped.startswith("**category:**"):
-            value = stripped.split(":", 1)[1].strip().strip("*").strip()
-            if "technical" in value:
-                category = "technical"
-            else:
-                category = "general"
-            break
-
     current_section = None
     text_extract_lines = []
     description_lines = []
 
     for line in lines:
-        stripped = line.strip().lower()
+        stripped = line.strip()
 
-        if stripped.startswith("## text extract") or stripped.startswith("## text:"):
+        if _is_text_extract_header(stripped):
             current_section = "text_extract"
-            if ":" in line and not stripped.startswith("## text extract"):
-                after_col = line.split(":", 1)[1].strip()
-                if after_col:
-                    text_extract_lines.append(after_col)
             continue
-
-        elif stripped.startswith("## description"):
+        elif _is_description_header(stripped):
             current_section = "description"
-            if ":" in line and not stripped.startswith("## description"):
-                after_col = line.split(":", 1)[1].strip()
-                if after_col:
-                    description_lines.append(after_col)
             continue
-
-        elif stripped.startswith("**category:**"):
+        elif stripped.lower().startswith("**category:**") or stripped.lower().startswith("category:"):
             continue
 
         if current_section == "text_extract":
@@ -186,18 +199,26 @@ def parse_analysis_response(response_text):
             low = s.lower()
             if low.startswith("- labels:") or low.startswith("- text:") or low.startswith("- text extract:"):
                 text_extract = _filter_conversational_lines(s.split(":", 1)[1].strip())
-            elif low.startswith("- description:"):
+            elif low.startswith("- description:") or low.startswith("- summary:"):
                 description = _filter_conversational_lines(s.split(":", 1)[1].strip())
 
-    # Fallback if headings were omitted by the model
+    # Fallback if headings were omitted
     if not description and not text_extract and text:
         description = _filter_conversational_lines(text)
 
-    if text_extract.lower() in {"no text content.", "no text content", "none", "n/a"}:
+    # If VLM emitted placeholder rejection strings, clear it
+    if text_extract.lower() in {"no text content.", "no text content", "none", "n/a", "no visible text"}:
         text_extract = ""
 
+    # GUARANTEE: If text_extract is empty or minimal, use formatted OCR tokens
+    if (not text_extract or len(text_extract.strip()) < 10) and raw_tokens:
+        text_extract = format_ocr_fallback(raw_tokens)
+
+    # Guarantee description is not empty
+    if not description and raw_tokens:
+        description = "Diagram / graphic containing visible technical entities, labels, and structured data flows."
+
     return {
-        "category": category,
         "text_extract": text_extract,
         "description": description,
     }
@@ -210,15 +231,18 @@ def parse_analysis_response(response_text):
 
 def analyze_images(assets_dir):
     """
-    Analyze all images inside assets folder using 2-Stage Pipeline:
-    Stage 1: High-speed PaddleOCR text extraction (< 0.2s)
-    Stage 2: Relational VLM structuring and contextual description (~10-15s)
+    Analyze all images inside assets folder:
+    1. Perceptual hash deduplication (suppresses repeated logos across pages)
+    2. High-precision OCR text extraction
+    3. Fast-path labeling for small text badges
+    4. Relational VLM structuring and description for complex diagrams & flowcharts
     """
     assets_dir = Path(assets_dir)
     cache = load_cache()
 
     results = {}
     analysis_times = {}
+    seen_doc_hashes = {}
 
     image_files = sorted(
         [
@@ -257,28 +281,66 @@ def analyze_images(assets_dir):
             continue
 
         # ------------------------------------
-        # Cache Check
+        # Document-Level Deduplication (Repeated Logos across pages)
         # ------------------------------------
         current_hash = image_hash(image_path)
+        matched_seen = find_similar_hash(current_hash, seen_doc_hashes)
+
+        if matched_seen:
+            # Same logo seen on previous page of this document -> mark as duplicate
+            print(f"{image_path.name}: Repeated logo/header graphic -> Suppress duplicate insertion")
+            results[image_path.name] = {
+                "is_duplicate": True,
+                "text_extract": "",
+                "description": "",
+            }
+            skipped += 1
+            continue
+
+        seen_doc_hashes[str(current_hash)] = image_path.name
+
+        # ------------------------------------
+        # Cache Check
+        # ------------------------------------
         matched_hash = find_similar_hash(current_hash, cache)
 
         if matched_hash:
             cached_result = cache[matched_hash]
-            results[image_path.name] = cached_result
-            cached += 1
+            if cached_result.get("text_extract") or cached_result.get("description"):
+                results[image_path.name] = cached_result
+                cached += 1
+                image_end = time.perf_counter()
+                analysis_time = image_end - image_start
+                analysis_times[image_path.name] = analysis_time
+                print(
+                    f"{image_path.name} cached in {analysis_time:.2f} seconds"
+                )
+                continue
+
+        # ------------------------------------
+        # Stage 1: Fast OCR Extraction
+        # ------------------------------------
+        ocr_tokens = extract_raw_ocr(image_path)
+
+        # ------------------------------------
+        # Fast-Path for Simple Badges / Small Labels (< 3 tokens)
+        # ------------------------------------
+        if 0 < len(ocr_tokens) <= 2 and all(len(t) < 30 for t in ocr_tokens):
+            label_text = " - ".join(ocr_tokens)
+            parsed = {
+                "text_extract": "\n".join(f"- {tok}" for tok in ocr_tokens),
+                "description": f"Graphic badge / label displaying: {label_text}.",
+                "raw_ocr": ocr_tokens,
+            }
+            results[image_path.name] = parsed
+            cache[str(current_hash)] = parsed
+            generated += 1
             image_end = time.perf_counter()
             analysis_time = image_end - image_start
             analysis_times[image_path.name] = analysis_time
-            print(
-                f"{image_path.name} [{cached_result['category']}] "
-                f"cached in {analysis_time:.2f} seconds"
-            )
+            print(f"{image_path.name} [Fast Label] processed in {analysis_time:.2f}s")
             continue
 
-        # ------------------------------------
-        # Stage 1: PaddleOCR Extraction
-        # ------------------------------------
-        ocr_tokens = extract_raw_ocr(image_path)
         if ocr_tokens:
             ocr_block = "\n".join(f"- {tok}" for tok in ocr_tokens)
         else:
@@ -289,26 +351,40 @@ def analyze_images(assets_dir):
         # ------------------------------------
         resized = resize_image(image_path)
 
-        prompt = f"""You are a technical document analyst.
-Below are the exact OCR text tokens extracted from this image:
+        prompt = f"""You are an expert document visual analyst.
+Below is the exact text detected from this image via high-precision OCR:
 
---- RAW OCR TOKENS ---
+--- DETECTED TEXT ---
 {ocr_block}
------------------------
+---------------------
 
-Using both the image and the raw OCR tokens above, output the information in the exact format below:
+Analyze this image carefully. You MUST provide two distinct sections using these exact markdown headings (do NOT wrap your answer in code fences):
 
 ## Text Extract
-[Structure the relationships between the OCR tokens:
-- IF Flowcharts/Pipelines: `[Source Node] --(Connector Label)--> [Destination Node]`
--IF Decisions: `[Decision Question?] -> If Yes: [Target Node] | If No: [Target Node]`
--IF Architecture: `[Component A] → [Component B] (Protocol/Data)`
--IF Tables: Table wise OCR text as same as in the given image.
--IF UI / Forms / Screenshot: List sections with field labels and buttons
-- If no text exists in the image, output: No text content.]
+Transcribe, organize, and structure ALL visible text, entities, relationships, labels, and UI elements:
+- If Flowchart / Process / Architecture:
+  Trace the complete sequential flow, branching decisions, and system connections:
+  - `[Start Action / Event]` --> `[Next Process]`
+  - `[Decision / Condition?]`:
+    - If Yes / True --> `[Target Node]`
+    - If No / False --> `[Target Node]`
+  - System interactions: `[Actor / Component]` <--> `[System DB / Database]`
+  - `[Final Action]` --> `[End]`
+- If Hub-and-Spoke / Ingestion / Multi-Source Architecture:
+  List all incoming feeds pointing to the central system:
+  - `[Source 1]` --> `[Central System / Platform]`
+  - `[Source 2]` --> `[Central System / Platform]`
+- If Database / ER Diagram / Schema:
+  Group by Table/Entity name, list all columns/fields, and specify foreign key / relational links (`[TABLE_A] (col1, col2) --> [TABLE_B] (fk)`).
+- If UI Mockup / Form / Web Portal:
+  Group by window/section, listing every button, input box, label, radio option, and header verbatim.
+- If Table / Comparison:
+  Output as a clean Markdown table with headers and rows.
+- If General Diagram / Document:
+  Transcribe all visible titles, text blocks, and bullet points verbatim.
 
 ## Description
-[2-3 concise sentences explaining the technical context, workflow, and purpose of the image.]"""
+Provide 2-4 clear, concise sentences explaining the technical architecture, data model, execution workflow, or user interaction depicted in this image."""
 
         try:
             response = ollama.chat(
@@ -324,7 +400,7 @@ Using both the image and the raw OCR tokens above, output the information in the
                     "temperature": 0,
                     "top_p": 0.9,
                     "repeat_penalty": 1.05,
-                    "num_predict": 1000,
+                    "num_predict": 1200,
                     "num_thread": 8,
                 }
             )
@@ -332,10 +408,10 @@ Using both the image and the raw OCR tokens above, output the information in the
         except Exception as e:
             failed += 1
             print(f"Analysis failed for {image_path.name}: {e}")
+            fallback_extract = format_ocr_fallback(ocr_tokens)
             results[image_path.name] = {
-                "category": "general",
-                "text_extract": "",
-                "description": "",
+                "text_extract": fallback_extract,
+                "description": "Image containing extracted text elements.",
                 "failed": True,
             }
             continue
@@ -349,7 +425,7 @@ Using both the image and the raw OCR tokens above, output the information in the
 
         raw_response = raw_content if raw_content else raw_thinking
 
-        parsed = parse_analysis_response(raw_response)
+        parsed = parse_analysis_response(raw_response, raw_tokens=ocr_tokens)
         parsed["raw_ocr"] = ocr_tokens
         results[image_path.name] = parsed
         cache[str(current_hash)] = parsed
@@ -360,8 +436,7 @@ Using both the image and the raw OCR tokens above, output the information in the
         analysis_times[image_path.name] = analysis_time
 
         print(
-            f"{image_path.name} [{parsed['category']}] "
-            f"analyzed in {analysis_time:.2f} seconds"
+            f"{image_path.name} analyzed in {analysis_time:.2f} seconds"
         )
 
     save_cache(cache)

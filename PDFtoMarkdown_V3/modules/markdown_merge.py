@@ -80,6 +80,11 @@ def merge_markdown(
             image_name = image_path.name
             analysis = image_analysis.get(image_name)
 
+            # Suppress duplicate logos on subsequent pages
+            if analysis and analysis.get("is_duplicate"):
+                markdown = markdown.replace("<!-- image -->", "", 1)
+                continue
+
             replacement = [f"### Figure {figure_number}", ""]
             replacement.append(_format_caption_blocks(image_name, analysis, alt_text=image_name))
             replacement.append("")
@@ -97,6 +102,8 @@ def merge_markdown(
             filename = full_path.replace("\\", "/").split("/")[-1]
 
             analysis = image_analysis.get(filename) if image_analysis else None
+            if analysis and analysis.get("is_duplicate"):
+                return ""
             return _format_caption_blocks(filename, analysis, alt_text=alt)
 
         img_tag_pattern = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")

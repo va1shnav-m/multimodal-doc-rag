@@ -1,4 +1,5 @@
 import argparse
+import shutil
 import time
 from pathlib import Path
 
@@ -204,7 +205,24 @@ def run_convert(args):
     output_folder = Path(args.out)
     ui = ConsoleUI()
 
+    # -------------------------------------------
+    # Refresh Output Directory & Atomic Archival of Prior Runs
+    # -------------------------------------------
+    if output_folder.exists() and any(output_folder.iterdir()):
+        try:
+            archive_root = Path("storage/archive")
+            archive_root.mkdir(parents=True, exist_ok=True)
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            archive_dir = archive_root / f"run_{timestamp}"
+
+            # Atomic directory move — moves the entire folder in a single OS operation
+            shutil.move(str(output_folder), str(archive_dir))
+        except Exception as e:
+            # If archiving fails, NEVER delete files unsafely. Preserve existing data.
+            print(f"Warning: Could not atomically archive previous output ({e}). Existing files preserved.")
+
     output_folder.mkdir(parents=True, exist_ok=True)
+    (output_folder / "assets").mkdir(parents=True, exist_ok=True)
 
     # -------------------------------------------
     # Collect documents and audio files
