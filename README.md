@@ -1,81 +1,68 @@
-# Production RAG: Pure Terminal Multi-Modal Document Engine
+# Multimodal Document Parsing and RAG Engine
 
-A production-grade, terminal/CLI-based multi-modal Retrieval-Augmented Generation (RAG) system integrating document conversion ([`PDFtoMarkdown_V3`](file:///c:/Users/Vaishnav%20M/Projects/production_rag/PDFtoMarkdown_V3)) and hybrid vector/sparse retrieval ([`qdrant_vectordb`](file:///c:/Users/Vaishnav%20M/Projects/production_rag/qdrant_vectordb)).
+A terminal-based system for converting documents (PDF, DOCX, PPTX, Audio) into structured Markdown and querying them using a local RAG pipeline.
 
 ---
 
-## 1. Architecture
+## Quick Setup
 
-```mermaid
-flowchart TD
-    subgraph Conversion ["1. Document Conversion (PDFtoMarkdown_V3)"]
-        DOCS["PDF / DOCX / PPTX / Audio"] --> PARSER["Hybrid / Docling / Vision / Whisper"]
-        PARSER --> MD["Structured Markdown (.md)"]
-    end
-
-    subgraph Bridge ["2. Bridge Layer"]
-        MD --> RAG_BRIDGE["modules/rag_bridge.py"]
-    end
-
-    subgraph RAG ["3. Production RAG Engine (qdrant_vectordb)"]
-        RAG_BRIDGE --> INGEST["Hierarchical Chunks + SpaCy NER + KeyBERT + KG"]
-        INGEST --> VDB[("Qdrant Local HNSW Vector DB")]
-        INGEST --> BM25[("BM25 Keyword Index")]
-        
-        ROUTER{"Adaptive Router"} -->|Chitchat / Direct| DIRECT["Direct LLM (0ms retrieval)"]
-        ROUTER -->|Document Query| HYBRID["Hybrid Search + RRF Fusion"]
-        
-        HYBRID --> RERANK["BGE Cross-Encoder + LLMLingua Compression"]
-        RERANK --> LLM["Qwen2.5-7B (Ollama) / OpenAI"]
-        DIRECT --> LLM
-    end
+### 1. Create & Activate Environment
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1   # Linux/macOS: source .venv/bin/activate
 ```
 
----
-
-## 2. Quick Start
-
-### Setup Environment
+### 2. Install Dependencies
 ```powershell
-# Create & activate environment
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-
-# Install unified requirements
 pip install -r requirements.txt
 python -m spacy download en_core_web_sm
 ```
 
----
-
-## 3. CLI Usage
-
-### Convert Documents & Ingest into RAG
+### 3. Pull Ollama Models
+Ensure [Ollama](https://ollama.com) is installed and running:
 ```powershell
-# Convert PDF/DOCX/PPTX/Audio and automatically ingest into Qdrant:
-python main.py convert PDFtoMarkdown_V3/input/sdlc.pdf --out output/ --rag
-
-# Convert, ingest, and ask a question immediately:
-python main.py convert PDFtoMarkdown_V3/input/sdlc.pdf --out output/ --rag --query "What is SDLC?"
-
-# Convert, ingest, and start an interactive terminal chat:
-python main.py convert PDFtoMarkdown_V3/input/sdlc.pdf --out output/ --rag --chat
+ollama pull qwen3-vl:2b-instruct   # For diagram & image analysis
+ollama pull qwen2.5:7b             # For terminal chat & Q&A
 ```
 
-### Direct Knowledge Base Commands
+---
+
+## Essential Commands
+
+All commands run through `main.py`:
+
+### Document Conversion (`convert`)
 ```powershell
-# Check database status and list indexed documents:
-python main.py rag --status
+# Convert PDF to Markdown + extracted images:
+python main.py convert PDFtoMarkdown_V3/input/test1.pdf --out output/
 
-# Ingest one or more markdown files directly:
-python main.py rag --ingest output/document_0001.md output/samplepptx.md
+# Fast conversion (skip image analysis):
+python main.py convert PDFtoMarkdown_V3/input/test1.pdf --out output/ --no-analysis
 
-# Query the knowledge base:
-python main.py rag --query "What is a vector database and how does it work?"
+# Convert folder or other formats (.docx, .pptx, audio .mp3):
+python main.py convert PDFtoMarkdown_V3/input/ --out output/
+```
 
-# Start interactive multi-turn terminal chat:
+### Convert + RAG Interactive Chat
+```powershell
+# Convert document, ingest into RAG, and start terminal chat:
+python main.py convert PDFtoMarkdown_V3/input/test1.pdf --out output/ --rag --chat
+
+# Ask a direct question on a document:
+python main.py convert PDFtoMarkdown_V3/input/test1.pdf --out output/ --rag --query "What is the project budget?"
+```
+
+### Query Existing Knowledge Base (`rag`)
+```powershell
+# Ask a question:
+python main.py rag --query "Explain the recruitment workflow"
+
+# Start interactive terminal chat:
 python main.py rag --chat
 
-# Clear all documents and reset the database:
-python main.py rag --clear
+# Ingest an existing markdown folder:
+python main.py rag --ingest output/
+
+# Check database status:
+python main.py rag --status
 ```
