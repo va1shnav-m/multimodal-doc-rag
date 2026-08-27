@@ -84,9 +84,9 @@ def main():
     )
 
     convert.add_argument(
-        "--clear-index",
+        "--append",
         action="store_true",
-        help="Clear existing vector collection and BM25 index before ingestion"
+        help="Append to existing RAG knowledge base instead of replacing it (default: replaces with current upload)"
     )
 
     convert.add_argument(
@@ -160,6 +160,12 @@ def main():
         "--ingest",
         nargs="+",
         help="Ingest one or more markdown files or directories directly into RAG"
+    )
+
+    rag_parser.add_argument(
+        "--append",
+        action="store_true",
+        help="Append to existing RAG knowledge base instead of replacing it (default: replaces with current upload)"
     )
 
     rag_parser.add_argument(
@@ -354,6 +360,7 @@ def run_convert(args):
                     temp_chunks_dir=temp_chunks_dir,
                     document_index=index,
                     ui=ui,
+                    skip_image_analysis=args.no_analysis,
                 )
 
             elif converted_path.suffix.lower() == ".pptx":
@@ -376,6 +383,7 @@ def run_convert(args):
                     temp_chunks_dir=temp_chunks_dir,
                     document_index=index,
                     ui=ui,
+                    skip_image_analysis=args.no_analysis,
                 )
 
             final_markdown = result["markdown"]
@@ -483,7 +491,7 @@ def run_convert(args):
         ingest_markdown_outputs(
             markdown_paths=generated_markdowns,
             collection_name=args.collection_name,
-            clear_index=args.clear_index,
+            clear_index=not getattr(args, "append", False),
         )
 
         if getattr(args, "query", None):
@@ -550,6 +558,7 @@ def run_rag(args):
         ingest_markdown_outputs(
             markdown_paths=md_files,
             collection_name=args.collection_name,
+            clear_index=not getattr(args, "append", False),
         )
 
     if args.query:

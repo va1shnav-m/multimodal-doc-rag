@@ -45,9 +45,11 @@ def ingest_markdown_outputs(
     pipeline = IngestionPipeline(collection_name=collection_name)
 
     if clear_index:
-        print("\n  [RAG] Clearing existing knowledge base index...")
+        from retrieval.bm25_store import clear_bm25
+        print("\n  [RAG] Clearing existing knowledge base index (clean slate for current upload)...")
         pipeline.vector_store.clear()
         NodeStore.clear()
+        clear_bm25()
 
     valid_paths = [Path(p) for p in markdown_paths if Path(p).exists()]
     if not valid_paths:
@@ -89,6 +91,60 @@ def ingest_markdown_outputs(
     }
 
 
+def extract_relevant_images(context: str, supporting_evidence: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Extract relevant image links, alt labels, and file paths from retrieved context and evidence."""
+    import re
+    images = []
+    seen = set()
+
+    # Pattern for markdown image syntax: ![alt](assets/filename.png) or ![alt](.../assets/filename.png)
+    pattern = re.compile(r'!\[([^\]]*)\]\(([^)]*assets/[^)]+)\)')
+
+    # Check both full context and individual evidence snippets
+    texts = [context] + [ev.get("text", "") for ev in supporting_evidence]
+    for text in texts:
+        for match in pattern.finditer(text):
+            alt = match.group(1).strip()
+            raw_path = match.group(2).strip().replace("\\", "/")
+            img_filename = raw_path.split("/")[-1]
+
+            if img_filename in seen:
+                continue
+            seen.add(img_filename)
+
+            # Resolve local path on disk
+            possible_paths = [
+                Path("output/assets") / img_filename,
+                Path("output") / raw_path,
+                Path(raw_path),
+                Path("PDFtoMarkdown_V3/output/assets") / img_filename,
+            ]
+            resolved_path = None
+            for p in possible_paths:
+                if p.exists():
+                    resolved_path = p
+                    break
+
+            # Extract the description snippet near the image tag in the text if present
+            desc_snippet = ""
+            desc_match = re.search(r'\*\*Description:\*\*\s*(.+?)(?=\n\n|\n[#>]|\Z)', text, re.DOTALL | re.IGNORECASE)
+            if desc_match:
+                desc_snippet = desc_match.group(1).replace(">", "").strip()
+                if len(desc_snippet) > 160:
+                    desc_snippet = desc_snippet[:157] + "..."
+
+            images.append({
+                "alt": alt if alt and alt != img_filename else "Diagram / Visual Element",
+                "filename": img_filename,
+                "relative_path": f"assets/{img_filename}",
+                "resolved_path": str(resolved_path) if resolved_path else f"output/assets/{img_filename}",
+                "exists": resolved_path is not None,
+                "description": desc_snippet,
+            })
+
+    return images
+
+
 def query_rag(
     question: str,
     collection_name: Optional[str] = None,
@@ -128,6 +184,7 @@ def query_rag(
             "answer": answer,
             "supporting_evidence": [],
             "documents_used": [],
+            "relevant_images": [],
             "context": "",
             "analytics": {"pipeline": "direct", "reason": "Chitchat / greeting detected (0ms retrieval)"},
             "metrics": get_metrics(),
@@ -147,6 +204,7 @@ def query_rag(
             "answer": answer,
             "supporting_evidence": [],
             "documents_used": [],
+            "relevant_images": [],
             "context": "",
             "analytics": {"pipeline": "direct", "reason": "No documents indexed - answered with general knowledge"},
             "metrics": get_metrics(),
@@ -177,6 +235,9 @@ def query_rag(
     supporting_evidence = retrieval_result.get("supporting_evidence", [])
     documents_used = retrieval_result.get("documents_used", [])
 
+    # Extract relevant images referenced in the retrieved chunks
+    relevant_images = extract_relevant_images(context, supporting_evidence)
+
     # Generate answer
     answer = llm.generate(
         question=question,
@@ -191,6 +252,7 @@ def query_rag(
         "answer": answer,
         "supporting_evidence": supporting_evidence,
         "documents_used": documents_used,
+        "relevant_images": relevant_images,
         "context": context,
         "analytics": retrieval_result.get("analytics", {}),
         "metrics": get_metrics(),
@@ -199,12 +261,23 @@ def query_rag(
 
 
 def print_query_result(result: Dict[str, Any]) -> None:
-    """Pretty print a RAG answer with citations and evidence in the CLI."""
+    """Pretty print a RAG answer with citations, image paths, and evidence in the CLI."""
     print("\n" + "=" * 70)
     print(f"  QUESTION: {result.get('question', '')}")
     print("=" * 70)
     print("\n" + result.get("answer", "").strip() + "\n")
     print("-" * 70)
+
+    # Relevant Diagrams & Visual Citations
+    rel_images = result.get("relevant_images", [])
+    if rel_images:
+        print("  RELEVANT DIAGRAMS & IMAGES:")
+        for i, img in enumerate(rel_images, start=1):
+            status = "" if img.get("exists") else " (file pending)"
+            print(f"   [{i}] {img.get('alt')} -> {img.get('resolved_path')}{status}")
+            if img.get("description"):
+                print(f"       Summary: \"{img.get('description')}\"")
+        print("")
 
     # Documents used / citations
     docs_used = result.get("documents_used", [])

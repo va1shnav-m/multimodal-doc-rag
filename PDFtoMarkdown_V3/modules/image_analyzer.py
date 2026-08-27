@@ -307,6 +307,8 @@ def analyze_images(assets_dir):
         if matched_hash:
             cached_result = cache[matched_hash]
             if cached_result.get("text_extract") or cached_result.get("description"):
+                if "raw_ocr" not in cached_result:
+                    cached_result["raw_ocr"] = extract_raw_ocr(image_path)
                 results[image_path.name] = cached_result
                 cached += 1
                 image_end = time.perf_counter()

@@ -4,19 +4,48 @@ from typing import Dict, Any, Optional
 
 
 def _format_caption_blocks(image_name: str, analysis: Optional[Dict[str, Any]], alt_text: str = "") -> str:
-    """Format markdown image tag with blockquote text extract and description."""
+    """Format markdown image tag with blockquote text extract, RapidOCR raw text, and description."""
     alt = alt_text if alt_text else image_name
     lines = [f"![{alt}](assets/{image_name})", ""]
 
     if analysis:
         text_extract = analysis.get("text_extract", "").strip()
+        raw_ocr = analysis.get("raw_ocr") or []
+
+        # Normalize raw_ocr tokens
+        if isinstance(raw_ocr, str):
+            raw_ocr_tokens = [t.strip() for t in raw_ocr.splitlines() if t.strip()]
+        elif isinstance(raw_ocr, list):
+            raw_ocr_tokens = [str(t).strip() for t in raw_ocr if str(t).strip()]
+        else:
+            raw_ocr_tokens = []
+
+        # 1. Structured Text Extract (from VLM)
+        has_vlm_extract = False
         if text_extract and text_extract.lower() not in {"no text content.", "no text content", "none", "n/a"}:
             lines.append("> **Text Extract:**")
             lines.append(">")
             for line in text_extract.splitlines():
                 lines.append(f"> {line}")
             lines.append("")
+            has_vlm_extract = True
 
+        # 2. RapidOCR Raw Text Extract
+        if raw_ocr_tokens:
+            raw_bullets = {f"- {t}".lower() for t in raw_ocr_tokens}
+            extract_lines = {l.strip().lower() for l in text_extract.splitlines() if l.strip()}
+
+            # If VLM provided no extract, or provided a different relational structure, show RapidOCR tokens
+            if not has_vlm_extract or raw_bullets != extract_lines:
+                header = "> **RapidOCR Extracted Text:**" if has_vlm_extract else "> **Text Extract (RapidOCR):**"
+                lines.append(header)
+                lines.append(">")
+                for tok in raw_ocr_tokens:
+                    bullet = tok if tok.startswith(("-", "*")) else f"- {tok}"
+                    lines.append(f"> {bullet}")
+                lines.append("")
+
+        # 3. Description
         description = analysis.get("description", "").strip()
         if description:
             lines.append("> **Description:**")

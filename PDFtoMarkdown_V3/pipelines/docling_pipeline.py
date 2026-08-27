@@ -17,6 +17,7 @@ def process_docling_pipeline(
     temp_chunks_dir,
     document_index,
     ui=None,
+    skip_image_analysis=False,
 ):
 
     pipeline_start = time.perf_counter()
@@ -127,26 +128,35 @@ def process_docling_pipeline(
     # ----------------------------------------
     # Image Analysis (Unified)
     # ----------------------------------------
-    ui.subheader("Image Analysis")
-    ia_start = time.perf_counter()
+    image_analysis_time = 0.0
+    image_analysis = {}
+    analysis_times = {}
 
-    ia_result = analyze_images(
-        temp_assets_dir
-    )
+    if not skip_image_analysis:
+        ui.subheader("Image Analysis")
+        ia_start = time.perf_counter()
 
-    image_analysis = ia_result["results"]
+        ia_result = analyze_images(
+            temp_assets_dir
+        )
 
-    report.images_analyzed = ia_result["generated"]
-    report.images_cached = ia_result["cached"]
-    report.images_skipped = ia_result["skipped"]
-    report.images_failed = ia_result["failed"]
+        image_analysis = ia_result["results"]
 
-    ia_end = time.perf_counter()
-    image_analysis_time = ia_end - ia_start
+        report.images_analyzed = ia_result["generated"]
+        report.images_cached = ia_result["cached"]
+        report.images_skipped = ia_result["skipped"]
+        report.images_failed = ia_result["failed"]
 
-    ui.info(
-        f"Image Analysis Time : {image_analysis_time:.2f} seconds"
-    )
+        ia_end = time.perf_counter()
+        image_analysis_time = ia_end - ia_start
+
+        ui.info(
+            f"Image Analysis Time : {image_analysis_time:.2f} seconds"
+        )
+        analysis_times = ia_result.get("analysis_times", {})
+    else:
+        report.images_skipped = total_images
+        ui.info("Image Analysis skipped (--no-analysis)")
 
     # ----------------------------------------
     # Final Markdown
@@ -206,5 +216,5 @@ def process_docling_pipeline(
             "total": pipeline_end - pipeline_start,
         },
         "report": report,
-        "analysis_times": ia_result["analysis_times"],
+        "analysis_times": analysis_times,
     }

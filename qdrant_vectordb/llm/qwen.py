@@ -94,6 +94,7 @@ Instructions:
 - Explain concepts in your own words.
 - Use headings.
 - Use bullet points where appropriate.
+- If the retrieved context includes diagrams, flowcharts, or images (e.g. ![...](assets/...)), explicitly reference the visual diagram, explain its workflow, and cite its figure/image filename.
 - Give examples if available.
 - If the answer cannot be fully found in the context, clearly state what information is missing.
 - End with a concise summary.

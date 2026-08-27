@@ -1,20 +1,20 @@
 # Metadata/KG query expansion.
-import spacy
+import re
 from utils.logger import logger
-try:
 
-    nlp = spacy.load(
-        "en_core_web_sm"
-    )
+_nlp = None
 
-except Exception:
 
-    raise RuntimeError(
-
-        "Install spaCy model:\n"
-        "python -m spacy download en_core_web_sm"
-
-    )
+def get_nlp():
+    global _nlp
+    if _nlp is None:
+        try:
+            import spacy
+            _nlp = spacy.load("en_core_web_sm")
+        except Exception as e:
+            logger.warning(f"spaCy not available for Query Expansion ({e}). Using basic keyword expansion.")
+            _nlp = "UNAVAILABLE"
+    return None if _nlp == "UNAVAILABLE" else _nlp
 
 
 ##########################################################
@@ -48,42 +48,25 @@ def expand_query(
     )
 
     ######################################################
-    # Named Entities
+    # Named Entities & Nouns
     ######################################################
 
-    doc = nlp(
-
-        query
-
-    )
-
-    for entity in doc.ents:
-
-        expanded_terms.add(
-
-            entity.text
-
-        )
-
-    ######################################################
-    # Nouns
-    ######################################################
-
-    for token in doc:
-
-        if token.pos_ in (
-
-            "NOUN",
-
-            "PROPN"
-
-        ):
-
-            expanded_terms.add(
-
-                token.lemma_
-
-            )
+    nlp = get_nlp()
+    if nlp:
+        try:
+            doc = nlp(query)
+            for entity in doc.ents:
+                expanded_terms.add(entity.text)
+            for token in doc:
+                if token.pos_ in ("NOUN", "PROPN"):
+                    expanded_terms.add(token.lemma_)
+        except Exception:
+            pass
+    else:
+        # Fallback simple tokenization
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', query)
+        for w in words:
+            expanded_terms.add(w)
 
         ######################################################
         # Retrieved Metadata

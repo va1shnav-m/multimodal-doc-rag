@@ -1,4 +1,3 @@
-import spacy
 from utils.logger import logger
 
 _nlp = None
@@ -8,13 +7,12 @@ def get_nlp():
     global _nlp
     if _nlp is None:
         try:
+            import spacy
             _nlp = spacy.load("en_core_web_sm")
-        except Exception:
-            raise RuntimeError(
-                "Please install en_core_web_sm:\n"
-                "python -m spacy download en_core_web_sm"
-            )
-    return _nlp
+        except Exception as e:
+            logger.warning(f"spaCy not available for Knowledge Graph ({e}). Skipping KG triples.")
+            _nlp = "UNAVAILABLE"
+    return None if _nlp == "UNAVAILABLE" else _nlp
 
 
 # ==========================================================
@@ -47,7 +45,13 @@ def extract_knowledge_graph(text):
     )
 
     nlp = get_nlp()
-    doc = nlp(text)
+    if not nlp:
+        return []
+
+    try:
+        doc = nlp(text)
+    except Exception:
+        return []
 
     triples = []
 
@@ -153,7 +157,13 @@ def extract_knowledge_graph(text):
 def build_entity_graph(text):
 
     nlp = get_nlp()
-    doc = nlp(text)
+    if not nlp:
+        return {}
+
+    try:
+        doc = nlp(text)
+    except Exception:
+        return {}
 
     graph = {}
 
