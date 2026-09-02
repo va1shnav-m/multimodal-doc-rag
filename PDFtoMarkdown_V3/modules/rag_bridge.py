@@ -136,6 +136,7 @@ def extract_relevant_images(context: str, supporting_evidence: List[Dict[str, An
             images.append({
                 "alt": alt if alt and alt != img_filename else "Diagram / Visual Element",
                 "filename": img_filename,
+                "path": str(resolved_path) if resolved_path else f"output/assets/{img_filename}",
                 "relative_path": f"assets/{img_filename}",
                 "resolved_path": str(resolved_path) if resolved_path else f"output/assets/{img_filename}",
                 "exists": resolved_path is not None,
@@ -149,7 +150,7 @@ def query_rag(
     question: str,
     collection_name: Optional[str] = None,
     pipeline_type: str = "hybrid",
-    llm_choice: str = "qwen",
+    llm_choice: str = "gemini",
     history: Optional[List[Dict[str, str]]] = None,
 ) -> Dict[str, Any]:
     """
@@ -162,14 +163,18 @@ def query_rag(
     from retrieval.router import AdaptiveRouter
     from llm.qwen import QwenLLM
     from llm.openai import OpenAILLM
+    from llm.gemini import GeminiLLM
     from utils.metrics import clear_metrics, get_metrics
 
     clear_metrics()
     overall_start = time.perf_counter()
 
     # Load LLM early in case of direct mode
-    if llm_choice.lower() == "openai":
+    choice = (llm_choice or "").lower()
+    if choice == "openai":
         llm = OpenAILLM()
+    elif choice == "gemini":
+        llm = GeminiLLM()
     else:
         llm = QwenLLM()
 
@@ -228,7 +233,7 @@ def query_rag(
         search_engine = HybridSearch(retriever)
         retrieval_result = search_engine.retrieve(question)
     else:  # adaptive (default)
-        router = AdaptiveRouter(retriever)
+        router = AdaptiveRouter(retriever, llm_choice=llm_choice)
         retrieval_result = router.retrieve(question)
 
     context = retrieval_result.get("context", "")
@@ -261,41 +266,33 @@ def query_rag(
 
 
 def print_query_result(result: Dict[str, Any]) -> None:
-    """Pretty print a RAG answer with citations, image paths, and evidence in the CLI."""
+    """Pretty-print the RAG answer along with supporting evidence and image references."""
     print("\n" + "=" * 70)
-    print(f"  QUESTION: {result.get('question', '')}")
+    print("  RAG RESPONSE")
     print("=" * 70)
-    print("\n" + result.get("answer", "").strip() + "\n")
-    print("-" * 70)
+    print(f"\n{result.get('answer', 'No response generated.')}\n")
 
-    # Relevant Diagrams & Visual Citations
-    rel_images = result.get("relevant_images", [])
-    if rel_images:
-        print("  RELEVANT DIAGRAMS & IMAGES:")
-        for i, img in enumerate(rel_images, start=1):
-            status = "" if img.get("exists") else " (file pending)"
-            print(f"   [{i}] {img.get('alt')} -> {img.get('resolved_path')}{status}")
-            if img.get("description"):
-                print(f"       Summary: \"{img.get('description')}\"")
+    # Images Cited
+    images = result.get("relevant_images", [])
+    if images:
+        print("-" * 70)
+        print("  RELEVANT DIAGRAMS & FIGURES FOUND IN CONTEXT:")
+        for img in images:
+            img_path = img.get("resolved_path") or img.get("path") or img.get("relative_path") or img.get("filename", "")
+            desc = f" - {img['description']}" if img.get("description") else ""
+            print(f"   [Figure] {img_path}{desc}")
         print("")
 
-    # Documents used / citations
-    docs_used = result.get("documents_used", [])
-    if docs_used:
-        print("  SOURCES & CITATIONS:")
-        for doc in docs_used:
-            pages = ", ".join(map(str, doc.get("pages", [])))
-            print(f"   * {doc.get('filename')} (Pages: {pages} | Chunks: {doc.get('chunks', 1)})")
-        print("")
-
-    # Supporting Evidence
-    evidence_list = result.get("supporting_evidence", [])
-    if evidence_list:
-        print("  SUPPORTING EVIDENCE:")
-        for i, ev in enumerate(evidence_list[:3], start=1):
-            score_str = f"Score: {ev.get('score', 0):.4f}" if "score" in ev else ""
-            print(f"   [{i}] {ev.get('filename', '')} (Page {ev.get('page', '')}) {score_str}")
-            snippet = ev.get("text", "").replace("\n", " ").strip()
+    # Source Chunks
+    evidence = result.get("supporting_evidence", [])
+    if evidence:
+        print("-" * 70)
+        print("  SUPPORTING EVIDENCE (Top Context Passages):")
+        for i, ev in enumerate(evidence, start=1):
+            score = f" [Score: {ev['score']:.3f}]" if "score" in ev else ""
+            doc_src = f" [Doc: {ev['doc_id']}]" if "doc_id" in ev else ""
+            print(f"   [{i}]{doc_src}{score}:")
+            snippet = ev.get("text", "").strip().replace("\n", " ")
             if len(snippet) > 200:
                 snippet = snippet[:197] + "..."
             print(f"       \"{snippet}\"")
@@ -313,7 +310,7 @@ def print_query_result(result: Dict[str, Any]) -> None:
 def start_terminal_chat(
     collection_name: Optional[str] = None,
     pipeline_type: str = "adaptive",
-    llm_choice: str = "qwen",
+    llm_choice: str = "gemini",
 ) -> None:
     """Run an interactive CLI chat session with multi-turn conversation memory."""
     from retrieval.node_store import NodeStore

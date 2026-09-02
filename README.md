@@ -18,11 +18,16 @@ pip install -r requirements.txt
 python -m spacy download en_core_web_sm
 ```
 
-### 3. Pull Ollama Models
-Ensure [Ollama](https://ollama.com) is installed and running:
+### 3. Configure API Keys (Optional / Recommended for Gemini)
+Create a `.env` file in the project root:
+```env
+GEMINI_API_KEY=your_gemini_api_key_here
+```
+
+### 4. Local Models (Optional if using Gemini)
+Ensure [Ollama](https://ollama.com) is installed and running if using local models:
 ```powershell
 ollama pull qwen3-vl:2b-instruct   # For diagram & image analysis
-ollama pull qwen2.5:7b             # For terminal chat & Q&A
 ```
 
 ---

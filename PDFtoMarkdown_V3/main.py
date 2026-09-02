@@ -104,9 +104,9 @@ def main():
 
     convert.add_argument(
         "--llm",
-        choices=["qwen", "openai"],
-        default="qwen",
-        help="LLM backend for generation (default: qwen)"
+        choices=["qwen", "openai", "gemini"],
+        default="gemini",
+        help="LLM backend for generation (default: gemini)"
     )
 
     convert.add_argument(
@@ -183,9 +183,9 @@ def main():
 
     rag_parser.add_argument(
         "--llm",
-        choices=["qwen", "openai"],
-        default="qwen",
-        help="LLM backend for generation (default: qwen)"
+        choices=["qwen", "openai", "gemini"],
+        default="gemini",
+        help="LLM backend for generation (default: gemini)"
     )
 
     args = parser.parse_args()

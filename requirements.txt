@@ -36,6 +36,8 @@ langchain
 langchain-core
 langchain-ollama
 langchain-openai
+langchain-google-genai
+google-genai
 openai
 ollama>=0.4.0
 python-dotenv

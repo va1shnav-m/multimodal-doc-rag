@@ -1,15 +1,15 @@
+import os
 import re
+from dotenv import load_dotenv
 from langchain_core.output_parsers import PydanticOutputParser
 
 from retrieval.router_schema import (
     RouteDecision,
     Pipeline,
 )
-
-from llm.qwen import load_qwen
-# from llm.openai import load_openai
 from utils.logger import logger
 
+load_dotenv()
 
 CHITCHAT_PATTERNS = [
     r"^(hi|hello|hey|greetings|howdy|hola|bonjour)\b",
@@ -64,18 +64,26 @@ Question:
 
 class RouteSelector:
 
-    def __init__(self):
-
-        self.llm = load_qwen(
-            model="qwen2.5:7b",
-            temperature=0
-        )
-
+    def __init__(self, llm_choice: str = None):
         self.parser = PydanticOutputParser(
             pydantic_object=RouteDecision
         )
+        self.llm = None
 
-    ##########################################################
+        try:
+            choice = (llm_choice or "").lower()
+            if choice == "gemini" or (not choice and (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))):
+                from llm.gemini import load_gemini
+                self.llm = load_gemini(model="gemini-2.5-flash", temperature=0)
+            elif choice == "openai" or (not choice and os.getenv("OPENAI_API_KEY")):
+                from llm.openai import load_openai
+                self.llm = load_openai(model="gpt-4o-mini", temperature=0)
+            else:
+                from llm.qwen import load_qwen
+                self.llm = load_qwen(model="qwen2.5:7b", temperature=0)
+        except Exception as e:
+            logger.warning(f"Could not initialize RouteSelector LLM ({e}). Will default to DEEP retrieval.")
+            self.llm = None
 
     def select(
         self,
@@ -94,6 +102,13 @@ class RouteSelector:
                 reason="General conversational greeting or small-talk detected."
             )
 
+        if not self.llm:
+            return RouteDecision(
+                pipeline=Pipeline.DEEP,
+                confidence=1.0,
+                reason="Defaulting to Deep Hybrid Retrieval."
+            )
+
         prompt = ROUTER_PROMPT.format(
             query=query,
             format_instructions=self.parser.get_format_instructions()
@@ -103,31 +118,31 @@ class RouteSelector:
         logger.info("Selecting Retrieval Pipeline")
         logger.info("=" * 60)
 
-        response = self.llm.invoke(prompt)
-
-        text = response.content.strip()
-
-        # Remove markdown fences if the model returns them
-        if text.startswith("```"):
-            text = (
-                text.replace("```json", "")
-                    .replace("```", "")
-                    .strip()
-            )
-
         try:
+            response = self.llm.invoke(prompt)
+            if hasattr(response, "content"):
+                text = response.content
+                if isinstance(text, list):
+                    text = " ".join([p.get("text", "") if isinstance(p, dict) else str(p) for p in text])
+                text = str(text).strip()
+            else:
+                text = str(response).strip()
+
+            # Remove markdown fences if the model returns them
+            if text.startswith("`"):
+                text = (
+                    text.replace("`json", "")
+                        .replace("`", "")
+                        .strip()
+                )
 
             decision = self.parser.parse(text)
-
         except Exception as e:
-
-            logger.exception("Failed to parse router output.")
-            logger.exception(e)
-
+            logger.warning(f"Failed to route with LLM ({e}). Falling back to Deep Retrieval.")
             decision = RouteDecision(
                 pipeline=Pipeline.DEEP,
                 confidence=0.0,
-                reason="Parser failure. Falling back to Deep Retrieval."
+                reason="Router fallback to Deep Retrieval."
             )
 
         logger.info(f"Pipeline   : {decision.pipeline}")

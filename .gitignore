@@ -39,6 +39,11 @@ output/
 */output/
 *.log
 
+# Environment & Secret Keys
+.env
+*.env
+.env.*
+
 # Loose scratch dumps
 structure.txt
 */structure.txt

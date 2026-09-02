@@ -31,7 +31,7 @@ python main.py convert <inputs...> --out <output_folder> [flags]
 | `--append` | *(flag)* | `False` | • **Default (`False`)**: Clears prior database index so queries strictly reference the current upload.<br>• **`--append` (`True`)**: Adds to existing database without deleting earlier documents. |
 | `--collection-name` | `string` | `production_rag` | Target Qdrant collection name. |
 | `--rag-pipeline` | `hybrid` \| `fast` \| `adaptive` | `hybrid` | Retrieval strategy for immediate query or chat:<br>• `hybrid`: Dense + BM25 + Rerank + LLMLingua compression.<br>• `fast`: Direct dense vector search.<br>• `adaptive`: Dynamic query classifier and router. |
-| `--llm` | `qwen` \| `openai` | `qwen` | LLM backend for generation (`qwen` via local Ollama or `openai`). |
+| `--llm` | `gemini` \| `openai` \| `qwen` | `gemini` | LLM backend for generation (`gemini` via Google AI Studio, `openai`, or `qwen` via local Ollama). |
 | `--query` | `string` | `None` | Asks a single one-shot question immediately after conversion and ingestion. |
 | `--chat` | *(flag)* | `False` | Launches an interactive terminal chat session immediately after conversion and ingestion. |
 
@@ -75,7 +75,7 @@ python main.py rag [flags]
 | `--clear` | *(flag)* | `False` | Clears all vectors, node chunks, metadata store, and BM25 index. |
 | `--collection-name` | `string` | `production_rag` | Target Qdrant collection name. |
 | `--pipeline` | `hybrid` \| `fast` \| `adaptive` | `hybrid` | Retrieval engine mode (`hybrid`, `fast`, `adaptive`). |
-| `--llm` | `qwen` \| `openai` | `qwen` | LLM generation backend (`qwen` via Ollama or `openai`). |
+| `--llm` | `gemini` \| `openai` \| `qwen` | `gemini` | LLM generation backend (`gemini`, `openai`, or `qwen`). |
 
 ### `rag` Usage Examples
 ```powershell
@@ -141,7 +141,7 @@ Images extracted from documents pass through these checks before VLM/OCR:
 | `convert` | `--append` | `flag` | `False` | Append to RAG (default: replaces old docs) |
 | `convert` | `--collection-name` | `string` | `production_rag` | Qdrant collection name |
 | `convert` | `--rag-pipeline` | `hybrid` \| `fast` \| `adaptive` | `hybrid` | RAG retrieval strategy |
-| `convert` | `--llm` | `qwen` \| `openai` | `qwen` | LLM model for generation |
+| `convert` | `--llm` | `gemini` \| `openai` \| `qwen` | `gemini` | LLM model for generation |
 | `convert` | `--query` | `string` | `None` | Ask single question after conversion |
 | `convert` | `--chat` | `flag` | `False` | Start interactive terminal chat |
 | `rag` | `--ingest` | `path ...` | `None` | Ingest markdown file(s) into RAG |
@@ -152,4 +152,4 @@ Images extracted from documents pass through these checks before VLM/OCR:
 | `rag` | `--clear` | `flag` | `False` | Clear all vectors, nodes, and BM25 index |
 | `rag` | `--collection-name` | `string` | `production_rag` | Qdrant collection name |
 | `rag` | `--pipeline` | `hybrid` \| `fast` \| `adaptive` | `hybrid` | RAG retrieval mode |
-| `rag` | `--llm` | `qwen` \| `openai` | `qwen` | LLM model for generation |
+| `rag` | `--llm` | `gemini` \| `openai` \| `qwen` | `gemini` | LLM model for generation |

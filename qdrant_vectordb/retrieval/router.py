@@ -7,12 +7,12 @@ from utils.logger import logger
 
 class AdaptiveRouter:
 
-    def __init__(self, retriever):
+    def __init__(self, retriever, llm_choice: str = None):
 
         self.simple = SimpleSearch(retriever)
         self.hybrid = HybridSearch(retriever)
 
-        self.selector = RouteSelector()
+        self.selector = RouteSelector(llm_choice=llm_choice)
 
     def retrieve(self, query):
 
